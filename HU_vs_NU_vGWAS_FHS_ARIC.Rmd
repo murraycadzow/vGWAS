@@ -1,0 +1,168 @@
+---
+title: "HU vs NU vGWAS"
+author: "Murray Cadzow"
+date: "05/11/2014"
+output: pdf_document
+---
+```{r}
+
+library(xtable)
+library(knitr)
+library(qqman)
+fhs_vgwas=read.csv("~/MurrayXsan/vGWAS/variance datasets/FHS/FHS_vGWAS_vGWA.csv", header=TRUE)
+aric_vgwas=read.csv("~/MurrayXsan/vGWAS/variance datasets/ARIC/ARIC_vGWAS_vGWA.csv", header=TRUE)
+aric_gwas=read.table("~/MurrayXsan/vGWAS/variance datasets/ARIC/ARIC_gcta_gwas_tidy.assoc.logistic", header=TRUE)
+fhs_gwas=read.table("~/MurrayXsan/vGWAS/variance datasets/FHS/FHS_gcta_gwas_tidy.assoc.logistic", header=TRUE)
+```
+
+#ARIC HU vs NU (SU >= 0.42 mmol/L male, >= 0.36 female)
+
+```{r, cache=TRUE, message=FALSE, echo=FALSE,warning=FALSE}
+png(file="aric_vgwas.png")
+manhattan(x = aric_vgwas, chr = "chromosome", bp = "map", 
+          p = "Pval",main="ARIC vGWAS")
+dev.off()
+png(file="aric_gwas.png")
+manhattan(x= aric_gwas, main= "ARIC plink GWAS")
+dev.off()
+```
+![Alt Text](aric_vgwas.png)
+![Alt Text](aric_gwas.png)
+
+
+#FHS HU vs NU (SU >= 0.42 mmol/L male, >= 0.36 female)
+```{r, cache=TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+png(file="fhs_vgwas.png")
+manhattan(x = fhs_vgwas, chr = "chromosome", bp = "map", 
+          p = "Pval", main = "FHS vGWAS")
+dev.off()
+png(file="fhs_gwas.png")
+manhattan(x = fhs_gwas, main = "FHS plink GWAS")
+dev.off()
+```
+![Alt Text](fhs_vgwas.png)
+![Alt Text](fhs_gwas.png)
+
+
+
+```{r, echo=FALSE}
+fhs = merge(fhs_vgwas, fhs_gwas, by.x = "name", by.y="SNP")
+names(fhs)[names(fhs) == "Pval"] = "Pval_vGWAS"
+names(fhs)[names(fhs) == "P"] = "Pval_GWAS"
+
+aric = merge(aric_vgwas, aric_gwas, by.x = "name", by.y="SNP")
+names(aric)[names(aric) == "Pval"] = "Pval_vGWAS"
+names(aric)[names(aric)== "P"] = "Pval_GWAS"
+
+
+
+```
+
+##vGWAS
+Number of SNPs with P < 5.0e-8
+```{r, echo=FALSE}
+print("FHS")
+table( fhs$Pval_vGWAS < 5.0e-8)
+print( "ARIC")
+table(aric$Pval_vGWAS < 5.0e-8)
+```
+##GWAS
+Number of SNPs with P < 5.0e-8 
+```{r, echo=FALSE}
+print("FHS")
+table(fhs$Pval_GWAS < 5.0e-8)
+
+print("ARIC")
+
+table(aric$Pval_GWAS < 5.0e-8)
+```
+#Joint voting
+
+FHS
+```{r, cache=TRUE, echo=FALSE}
+
+table(fhs$Pval_GWAS < 0.0001 & fhs$Pval_vGWAS < 0.0001)
+
+joint_fhs= fhs[(fhs$Pval_vGWAS < 0.0001 & fhs$Pval_GWAS < 0.0001) |
+                 fhs$Pval_vGWAS < 5.0e-8 | fhs$Pval_GWAS < 5.0e-8 ,]
+joint_fhs = joint_fhs[order(joint_fhs$chromosome, joint_fhs$map),]
+kable(data.frame(joint_fhs[,c("name", "CHR","BP","snp_eff", "OR","Pval_GWAS", "Pval_vGWAS")], row.names=NULL))
+```
+
+ARIC
+
+```{r,cache=TRUE, echo=FALSE}
+table(aric$Pval_GWAS < 0.0001 & aric$Pval_vGWAS < 0.0001)
+```
+```{r, , echo=FALSE,results='asis'}
+joint_aric=aric[(aric$Pval_vGWAS < 0.0001 & aric$Pval_GWAS < 0.0001) |
+                  aric$Pval_vGWAS < 5.0e-8 | aric$Pval_GWAS < 5.0e-8,]
+joint_aric = joint_aric[order(joint_aric$chromosome, joint_aric$map),]
+kable(data.frame(joint_aric[,c("name", "CHR","BP","snp_eff", "OR","Pval_GWAS", "Pval_vGWAS")], row.names=NULL))
+
+#pandoc(xtable(data.frame(tab[c(1,2,3,4,7,5,6),c("POP","FayWu_H","Lower Quantile","Mean","Upper Quantile")], row.names=NULL)),format = "markup")
+```
+
+
+
+##BiomaRt for annotation
+```{r biomart, message=FALSE, cache=FALSE, results='hide', echo=FALSE}
+library(biomaRt)
+
+snpmart = useMart(  host="grch37.ensembl.org", biomart='ENSEMBL_MART_SNP', 
+                    dataset="hsapiens_snp")
+get_gene=function(x){
+  snp=list()
+  snpdata=data.frame()
+  for( i in 1:length(x[,1])){
+    snp[[i]]=getBM(attributes=(c("refsnp_id","chr_name","chrom_start","ensembl_gene_stable_id")),
+                   filters=c("chr_name", "chrom_start", "chrom_end") ,
+                   values=as.list(x[i,1:3]) , mart=snpmart, verbose=FALSE)
+    snpdata = rbind(snpdata, as.data.frame(snp[[i]]))
+  
+    }
+  return(snpdata)
+  }
+```
+
+
+```{r, echo=FALSE, cache=TRUE}
+a=data.frame(chr=joint_fhs$chromosome, start=joint_fhs$map, end=joint_fhs$map +1)
+
+joint_fhs_gene = get_gene(a)
+
+b=data.frame(chr=joint_aric$chromosome, start=joint_aric$map, end=joint_aric$map +1)
+
+joint_aric_gene = get_gene(b)
+```
+
+
+## FHS joint voting annotated with HGNC ids
+```{r, echo=FALSE, cache=TRUE}
+gene=useMart(host="grch37.ensembl.org", biomart="ENSEMBL_MART_ENSEMBL", 
+             dataset="hsapiens_gene_ensembl")
+fhs_hgnc = getBM(attributes=(c("ensembl_gene_id", "hgnc_symbol")),
+                 filters=c("ensembl_gene_id") , 
+                 values=joint_fhs_gene$ensembl_gene_stable_id , 
+                 mart=gene, verbose=FALSE)
+fhs_hgnc =merge(joint_fhs_gene, fhs_hgnc, by.x = "ensembl_gene_stable_id", 
+      by.y="ensembl_gene_id", all.x=TRUE)
+fhs_hgnc = fhs_hgnc[order(fhs_hgnc$chr_name, fhs_hgnc$chrom_start),]
+kable(data.frame(fhs_hgnc, row.names=NULL))
+```
+
+##ARIC joint voting annoated with HGNC ids
+
+```{r, echo=FALSE, cache=TRUE}
+gene=useMart(host="grch37.ensembl.org", biomart="ENSEMBL_MART_ENSEMBL", 
+             dataset="hsapiens_gene_ensembl")
+aric_hgnc = getBM(attributes=(c("ensembl_gene_id", "hgnc_symbol")),
+                  filters=c("ensembl_gene_id") , 
+                  values=joint_aric_gene$ensembl_gene_stable_id ,
+                  mart=gene, verbose=FALSE)
+
+aric_hgnc = merge(joint_aric_gene, aric_hgnc, by.x = "ensembl_gene_stable_id", 
+      by.y="ensembl_gene_id", all.x=TRUE)
+aric_hgnc=aric_hgnc[order(aric_hgnc$chr_name, aric_hgnc$chrom_start),]
+kable(data.frame(aric_hgnc, row.names=NULL))
+```
